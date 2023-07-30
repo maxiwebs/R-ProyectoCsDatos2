@@ -1,0 +1,482 @@
+---
+title: "Proyecto Ciencia de Datos II"
+author: "Maxi Urso"
+date: "2023-07-30"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Importo librerías
+```{r message=FALSE}
+library(tidyverse)
+library(sf)
+library(ggplot2)
+library(scales)
+```
+
+
+# Levanto base escuelas
+```{r message=FALSE}
+escuelas <- read_csv('data/establecimientos_educativos_WGS84.csv')
+summary(escuelas)
+```
+# Veo dimensión de la base
+```{r}
+dim(escuelas)
+```
+**2973 registros, 27 columnas.**
+
+# Veo columnas de la base escuelas
+```{r}
+colnames(escuelas)
+```
+# Selecciono columnas
+Dejo las columnas con las que me voy a quedar
+
+```{r}
+escuelas <- escuelas %>% 
+  select(cue,nombre_abr,depfun,de,comuna,barrio)
+
+```
+
+# Inspecciono campos
+```{r}
+summary(escuelas)
+```
+## Cantidad de escuelas por dependencia funcional
+```{r}
+table(escuelas$depfun)
+```
+
+# Filtrando elementos
+Voy a quitar las dependencias funcionales con menos de 10 establecimientos
+
+Para ello tengo que agrupar y contar.
+
+Luego ordeno por dependencia funcional en orden descendente.
+
+```{r}
+escuelas_agrup_depfun <- escuelas %>% 
+  group_by(depfun) %>% 
+  summarise(cantidad = n()) %>% 
+  arrange(-cantidad)
+
+print(escuelas_agrup_depfun)
+
+```
+## Me quedo con las dependencias funcionales con menos de 10 establecimientos
+
+```{r}
+
+dep_funcs_chicas <- escuelas_agrup_depfun %>% 
+  filter(cantidad < 10)
+
+print(dep_funcs_chicas)
+
+```
+Quiero eliminar de la base escuelas las que corresponden a estas dependencias funcionales.
+
+Para ello construyo una lista de las dependencias funcionales chicas
+
+```{r}
+lista_dep_funcs_chicas <- dep_funcs_chicas$depfun
+
+lista_dep_funcs_chicas
+```
+Ahora quito de la base esas escuelas
+
+```{r}
+
+escuelas <- escuelas %>% 
+  filter(!(depfun %in% lista_dep_funcs_chicas))
+
+```
+Chequeo que ya no estén.
+
+```{r}
+table(escuelas$depfun)
+```
+Veo que todas son mayores a 10.
+
+# Chequeo si hay y elimino valores nulos
+
+```{r}
+any(is.na(escuelas$depfun))
+
+escuelas <- drop_na(escuelas)
+
+```
+
+
+# Grafico cantidad de escuelas por dependencia funcional
+
+```{r}
+
+ggplot(escuelas, aes(y = factor(depfun)))+
+  geom_bar(fill = "steelblue", color = "black", stat = "count") +
+  labs(title = "Establecimientos por Dependencia Funcional", y = "Dependencia funcional", x = "Cantidad")
+
+```
+# Quito todo lo que sea gerencias
+
+Y me quedo solo con las que contienen la palabra "Dirección"
+
+```{r}
+escuelas_direcciones <- escuelas %>% 
+  filter(grepl("Dirección",depfun))
+
+table(escuelas_direcciones$depfun)
+```
+# Gráficos de tortas
+Para conocer las proporciones de escuelas por Dirección.
+
+## Separo las de gestión privada y las de gestión estatal
+
+```{r}
+escuelas_estatales_privadas <- escuelas_direcciones %>% 
+  mutate(est_priv = case_when(depfun == "Dirección General de Educación de Gestión Privada" ~ 'Privadas',
+                              .default = 'Estatales')) %>%
+  group_by(est_priv) %>%
+  summarise(cantidad = n()) %>%
+  arrange(cantidad) %>% 
+  mutate (pct = round((cantidad / sum(cantidad))*100,digits=2),
+          lab.ypos = cumsum(pct) - 0.5*pct) #Esto es para acomodar etiquetas de pct
+
+escuelas_estatales_privadas
+```
+```{r}
+ggplot(escuelas_estatales_privadas, aes(x = "", y=pct, fill = est_priv))+
+  geom_bar(width=1, stat = 'identity', color = 'white')+
+  coord_polar('y',start=0)+
+  geom_text(aes(y=lab.ypos, label = percent(pct, scale = 1, accuracy = 0.01)), color='white')+
+  theme_void()+
+  labs(title = "Porcentaje de establecimientos de gestión Estatal/Privada", fill = "Estatales/Privados")
+  
+```
+
+## Eliminando las de gestion privada
+
+Me quedo sólo con las de gestión estatal para calcular porcentajes entre primarias, iniciales, medias, etc.
+
+```{r}
+
+escuelas_estatales <- escuelas_direcciones %>% 
+  filter(depfun != "Dirección General de Educación de Gestión Privada") %>% 
+  group_by(depfun) %>% 
+  summarise(cantidad = n()) %>% 
+  arrange(cantidad) %>% 
+  mutate (pct = round((cantidad / sum(cantidad))*100,digits=2),
+          lab.ypos = cumsum(pct) - 0.5*pct) #Esto es para acomodar etiquetas de pct
+
+escuelas_estatales
+
+```
+Voy a dejar en la categoría "Otra" a las dependencias funcionales con menos de 100 escuelas.
+
+```{r}
+escuelas_estatales <- escuelas_direcciones %>% 
+  filter(depfun != "Dirección General de Educación de Gestión Privada") %>% 
+  mutate(depfun = case_when(depfun == 'Dirección de Escuelas Normales Superiores' ~ 'Otra DF',
+                            depfun == 'Dirección de EducaciónTécnica Superior' ~ 'Otra DF',
+                            depfun == 'Dirección de Educación Técnica' ~ 'Otra DF',
+                            depfun == 'Dirección de Educación Especial' ~ 'Otra DF',
+                            depfun == 'Dirección de Educación Artística' ~ 'Otra DF',
+                            .default = depfun)) %>% 
+  group_by(depfun) %>% 
+  summarise(cantidad = n()) %>% 
+  arrange(cantidad) %>% 
+  mutate (pct = round((cantidad / sum(cantidad))*100,digits=2)) %>% 
+  mutate (lab.ypos = cumsum(pct) - 0.5*pct)  %>%  #Esto es para acomodar etiquetas de pct+
+  mutate(legend_labs = paste0(depfun, " (",pct, "%)"))
+
+
+escuelas_estatales
+```
+
+```{r}
+
+ggplot(escuelas_estatales, aes(x = 2, y = pct, fill = legend_labs)) +
+  geom_bar(stat = "identity", color = "white") +
+  coord_polar(theta = "y", start = 0, direction = -1)+
+  geom_text(aes(label = percent(pct, scale = 1, accuracy = 0.01) ), size=3, position=position_stack(vjust=0.5))+
+  theme_void()+
+  xlim(0.5, 2.5)+
+  labs(title = "Porcentaje de establecimientos de gestión Estatal por Dependencia Funcional", fill = "Dependencia Funcional")
+
+```
+
+# Mapa de escuelas en CABA
+
+Voy a graficar con puntos la distribución de las escuelas en CABA
+
+
+
+
+
+# Grafico cantidad de escuelas por comuna
+
+Agrupo por comuna y cuento
+
+```{r}
+
+escuelas_agrup_comuna <- escuelas %>% 
+  group_by(comuna) %>%
+  summarise(cantidad = n()) %>% 
+  arrange(comuna)
+
+escuelas_agrup_comuna
+
+```
+## Grafico de barras de escuelas por comunas
+
+```{r}
+ggplot(data = escuelas_agrup_comuna,
+       aes(x = factor(comuna), y = cantidad, fill=cantidad))+ 
+  geom_col(colour = 'black',
+           alpha = 0.7)+
+  scale_fill_gradient(low = "#e5f5e0", high = "#31a354")+
+  labs (title = "Cantidad de escuelas por Comuna",
+        x = "Comunas",
+        y = "Cantidad de escuelas")+
+  geom_text(aes(label = cantidad), hjust = -0.1)+ # Muestra los números sobre las barras
+  theme_minimal()+
+  coord_flip() #Roto el gráfico para que quede horizontal
+```
+
+# Un poco de estadística
+
+Genero una tabla resumen con cantidad de escuelas, el mínimo, máximo, promedio y mediana
+
+```{r}
+resumen <- escuelas_agrup_comuna %>% 
+  summarise(max = max(cantidad),
+            min = min(cantidad),
+            promedio = mean(cantidad),
+            mediana = median(cantidad))
+
+resumen
+
+```
+
+# Comunas con "muchas" y "pocas" escuelas
+
+Voy a dividir en las comunas que tienen más o menos que la mediana
+
+```{r}
+
+comunas_segun_cantidad_escuelas <- escuelas_agrup_comuna %>% 
+  mutate(clasificacion = case_when(cantidad > 183 ~ "Muchas escuelas",
+                                   cantidad < 183 ~ "Pocas escuelas",
+                                   .default = "En la mediana"))
+
+comunas_segun_cantidad_escuelas %>% 
+  arrange(clasificacion,-cantidad)
+
+```
+
+
+
+
+# Levanto base censo 2010
+```{r}
+censo_2010 <- read.csv('data/partidos_censo2010.csv')
+summary(censo_2010)
+```
+# Chequeo nombres de columnas
+```{r}
+colnames(censo_2010)
+```
+# Veo qué valores tiene la columna nombre
+```{r}
+table(censo_2010$nombre)
+```
+# Filtro solo los datos de CABA
+
+Para ello voy a seleccionar sólo las que contienen la palabra "Comuna "
+
+```{r}
+
+censo_2010_CABA <- censo_2010 %>% 
+  filter(str_detect(nombre, "Comuna"))
+
+table(censo_2010_CABA$nombre)
+
+```
+
+# Genero una columna Comuna
+En la misma sólo voy a poner el número de la comuna para poder joinear
+
+Tengo que castear a double porque sino queda como character
+
+```{r}
+censo_2010_CABA_comunas <- censo_2010_CABA %>% 
+  mutate(comuna = as.double(str_remove(nombre, "Comuna ")))
+
+censo_2010_CABA_comunas$comuna
+```
+
+
+# Joineo censo con base de escuelas
+
+```{r}
+escuelas_agrup_comuna_censo <- left_join(escuelas_agrup_comuna,censo_2010_CABA_comunas,by="comuna")
+
+escuelas_agrup_comuna_censo
+```
+
+# Calculo escuelas por cantidad de poblacion
+
+En base a los datos del censo de 2010, por cada 1000 habitantes y cada 1000 viviendas.
+
+```{r}
+
+escuelas_poblacion <- escuelas_agrup_comuna_censo %>% 
+  mutate(escuelas_por_1000_hab = cantidad/(pob_2010/1000),
+         escuelas_por_1000_viv = cantidad/(viv_2010/1000)) %>% 
+  arrange(-escuelas_por_1000_hab)
+
+
+escuelas_poblacion
+```
+# Gráfico de escuelas por cada 1000 habitantes por comuna
+
+```{r}
+
+escuelas_poblacion <- escuelas_poblacion %>% 
+  arrange(comuna)
+
+ggplot(escuelas_poblacion, aes(x = escuelas_por_1000_hab, y = reorder(nombre,comuna))) +
+  geom_bar(stat = "identity", fill = "steelblue") +
+  labs(x = "Escuelas por cada 1000 habitantes", y = "Comuna") +
+  ggtitle("Escuelas por cada 1000 habitantes por Comuna")
+```
+
+```{r}
+ggplot(escuelas_poblacion, aes(y = reorder(nombre,comuna))) +
+  geom_bar(aes(x = escuelas_por_1000_viv, fill = "Mil viviendas"), stat = "identity", position = "dodge") +
+  geom_bar(aes(x = escuelas_por_1000_hab, fill = "Mil habitantes"), stat = "identity", position = "dodge") +
+  labs(x = "Cantidad de escuelas", y = "Comunas") +
+  scale_fill_manual(values = c("Mil viviendas" = "steelblue", "Mil habitantes" = "darkorange")) +
+  ggtitle("Cantidad de escuelas por habitantes y viviendas por Comuna")
+```
+## Escuelas privadas por comuna
+
+Filtro para quedarme con sólo las escuelas con dependencia funcional "Dirección General de Educación de Gestión Privada"
+
+```{r}
+
+escuelas_privadas_por_comuna <- escuelas %>% 
+  filter(depfun == "Dirección General de Educación de Gestión Privada") %>% 
+  group_by(comuna) %>%
+  summarise(cantidad = n()) %>% 
+  arrange(-cantidad)
+
+escuelas_privadas_por_comuna
+
+```
+```{r}
+ggplot(data = escuelas_privadas_por_comuna,
+       aes(x = factor(comuna), y = cantidad, fill=cantidad))+ 
+  geom_col(colour = 'black',
+           alpha = 0.7)+
+  scale_fill_gradient(low = "#e5f5e0", high = "#31a354")+
+  labs (title = "Cantidad de escuelas privadas por Comuna",
+        x = "Comunas",
+        y = "Cantidad de escuelas")+
+  geom_text(aes(label = cantidad), hjust = -0.1)+ # Muestra los números sobre las barras
+  theme_minimal()+
+  coord_flip() #Roto el gráfico para que quede horizontal
+```
+
+## Cantidad de escuelas privadas por cada 1000 habitantes por Comuna
+
+```{r}
+
+escuelas_priv_agrup_comuna_censo <-
+  left_join(escuelas_privadas_por_comuna,censo_2010_CABA_comunas,by="comuna") %>%
+  mutate(escuelas_por_1000_hab = cantidad/(pob_2010/1000),
+         escuelas_por_1000_viv = cantidad/(viv_2010/1000)) %>% 
+  arrange(-escuelas_por_1000_hab)
+
+escuelas_priv_agrup_comuna_censo 
+
+
+```
+
+```{r}
+ggplot(escuelas_priv_agrup_comuna_censo, aes(y = reorder(nombre,comuna))) +
+  geom_bar(aes(x = escuelas_por_1000_viv, fill = "Mil viviendas"), stat = "identity", position = "dodge") +
+  geom_bar(aes(x = escuelas_por_1000_hab, fill = "Mil habitantes"), stat = "identity", position = "dodge") +
+  labs(x = "Cantidad de escuelas", y = "Comunas") +
+  scale_fill_manual(values = c("Mil viviendas" = "steelblue", "Mil habitantes" = "darkorange")) +
+  ggtitle("Cantidad de escuelas privadas por habitantes y viviendas por Comuna")
+```
+
+
+
+
+
+
+#Levanto shp
+```{r}
+distritos <- st_read("data/distritos-escolares.geojson",
+                     stringsAsFactors = TRUE)
+```
+
+#Quiero graficar cantidad de escuelas por distrito escolar
+```{r}
+cant_escuelas_de <- escuelas %>% 
+  group_by(de) %>% 
+  summarise(cantidad = n())
+```
+
+#Al dataset de distritos le uno el de cantidad de escuelas
+
+```{r}
+distritos <- left_join(distritos,cant_escuelas_de, by= c("ID"="de"))
+
+```
+
+Hago un mapa coroplético con la cantidad de escuelas por distrito escolar
+
+```{r}
+ggplot()+
+  geom_sf(data=distritos, aes(fill=cantidad))+
+    scale_fill_distiller(palette = "RdYlGn", direction = 1)+ #El direction 1 da vuelta la paleta de colores
+      labs(title="Cantidad de escuelas por DE",
+       fill="")
+```
+
+```{r}
+#Usando GGMAP
+library(ggmap)
+
+##Creo una caja de coordenadas
+#Las calcula en base a el dataset de barrios de CABA
+
+bbox_caba <- st_bbox(distritos)
+print(bbox_caba)
+
+#Paso a numéricos el bbox
+bbox_caba <- as.numeric(bbox_caba)
+mapa_caba <- get_stamenmap(bbox = as.numeric(bbox_caba), #Repito pero no hace falta
+                           maptype = "terrain", #Estilo de mapa
+                           zoom=13)
+
+#Ploteo mapa base
+#ggmap(mapa_caba)
+```
+```{r}
+ggmap(mapa_caba)+
+  geom_sf(data=distritos, aes(fill=cantidad), color=NA, inherit.aes=FALSE, alpha=0.8)+ #El inherit.aes es para que no choque el geom_sf con el ggmap
+    labs(title = "Cantidad de escuelas por DE",
+         fill = "Cantidad escuelas")+
+  scale_fill_distiller(palette = "RdYlGn",direction=1)+
+  theme_void()
+```
+
+#Podría obtener datos de población y sacar una relación de escuelas por población
+
