@@ -2,7 +2,8 @@
 title: "Proyecto Ciencia de Datos II - Establecimientos Educativos en CABA"
 author: "Maxi Urso"
 date: "2023-08"
-output: html_document
+#output: html_document
+output: github_document
 ---
 
 La ciudad elegida es la Ciudad Autónoma de Buenos Aires. Se indagará sobre la información referida a establecimientos educativos dentro de la misma. La fuente de datos de los establecimientos educativos se tomará del portal [BA Data](https://data.buenosaires.gob.ar/dataset/establecimientos-educativos).
