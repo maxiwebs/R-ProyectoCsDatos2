@@ -1,9 +1,13 @@
 ---
-title: "Proyecto Ciencia de Datos II"
+title: "Proyecto Ciencia de Datos II - Establecimientos Educativos en CABA"
 author: "Maxi Urso"
-date: "2023-07-30"
+date: "2023-08"
 output: html_document
 ---
+
+La ciudad elegida es la Ciudad Autónoma de Buenos Aires. Se indagará sobre la información referida a establecimientos educativos dentro de la misma. La fuente de datos de los establecimientos educativos se tomará del portal [BA Data](https://data.buenosaires.gob.ar/dataset/establecimientos-educativos).
+
+Se buscará analizar brevemente cómo están distribuídos los establecimientos educativos dentro de la CABA realizando una comparación entre niveles y modalidades según la dependencia funcional a la que pertenecen y cómo están distribuídas en las 15 comunas. Para afinar el análisis, se cruzará la información georeferenciada de los establecimientos educativos con la base de censo 2010 para el AMBA trabajado en este curso. Por último, se buscará realizar una comparación entre la cantidad de escuelas de gestión estatal y de gestión privada en relación a la cantidad de población de cada una de las comunas de la ciudad.
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
@@ -19,11 +23,10 @@ library(scales)
 library(ggmap)
 ```
 
-# Levanto base escuelas
+# Levanto base establecimientos educativos
 
 ```{r message=FALSE}
 escuelas <- read_csv('data/establecimientos_educativos_WGS84.csv')
-summary(escuelas)
 ```
 
 # Veo dimensión de la base
@@ -42,11 +45,21 @@ colnames(escuelas)
 
 # Selecciono columnas
 
-Dejo las columnas con las que me voy a quedar
+Dejo las columnas con las que me voy a quedar:
+
+-    cue: Código único de escuela
+
+-   nombre_abr: Nombre del establecimiento
+
+-   depfun: Dependencia funcional
+
+-   de: Distrito Escolar
+
+-   comuna
 
 ```{r}
 escuelas <- escuelas %>% 
-  select(cue,nombre_abr,depfun,de,comuna,barrio)
+  select(cue,nombre_abr,depfun,de,comuna)
 
 ```
 
@@ -137,9 +150,14 @@ ggplot(escuelas, aes(y = factor(depfun)))+
 
 ```
 
+
+Se puede observar que la mayor cantidad de establecimientos educativos corresponden a la Dirección General de Educación de Gestión Privada. Bajo esa órbita están las escuelas de los diferentes niveles educativos (primaria, inicial, secundaria), mientras que las escuelas de gestión estatal están repartidas en diferentes direcciones.
+
+A su vez, hay algunos establecimientos educativos que corresponden a diferentes gerencias o subsecretarías que serán descartadas del posterior análisis.
+
 # Quito todo lo que sea gerencias
 
-Y me quedo solo con las que contienen la palabra "Dirección"
+Y me quedo solo con las que contienen la palabra "Dirección".
 
 ```{r}
 escuelas_direcciones <- escuelas %>% 
@@ -150,9 +168,11 @@ table(escuelas_direcciones$depfun)
 
 # Gráficos de tortas
 
-Para conocer las proporciones de escuelas por Dirección.
+Voy a realizar algunos piecharts para conocer las proporciones de escuelas por Dirección.
 
 ## Separo las de gestión privada y las de gestión estatal
+
+Agrego un campo que indique si la escuela es de gestión estatal o privada. Luego, calculo la cantidad y porcentaje de escuelas según gestión.
 
 ```{r}
 escuelas_estatales_privadas <- escuelas_direcciones %>% 
@@ -177,9 +197,15 @@ ggplot(escuelas_estatales_privadas, aes(x = "", y=pct, fill = est_priv))+
   
 ```
 
+Se puede observar que la relación entre establecimientos de gestión estatal y de gestión privada en el ámbito de la CABA, responden a una relación aproximada de 60/40 %.
+
+Ahora se analizará, dentro de las de gestión estatal, qué porcentajes de establecimientos educativos hay por cada nivel.
+
 ## Eliminando las de gestion privada
 
 Me quedo sólo con las de gestión estatal para calcular porcentajes entre primarias, iniciales, medias, etc.
+
+Agrupo por dependencia funcional y calculo porcentaje.
 
 ```{r}
 
@@ -195,7 +221,9 @@ escuelas_estatales
 
 ```
 
-Voy a dejar en la categoría "Otra" a las dependencias funcionales con menos de 100 escuelas.
+Para achicar un poco la cantidad de categorías y realizar un gráfico con las principales Direcciones, voy a dejar en la categoría "Otra DF" a las escuelas cuya dependencia funcional tiene menos de 100 escuelas.
+
+Hago un case_when manualmente con cada una de las dependencias funcionales, pero podría haberse filtrado por cantidad. 
 
 ```{r}
 escuelas_estatales <- escuelas_direcciones %>% 
@@ -229,13 +257,16 @@ ggplot(escuelas_estatales, aes(x = 2, y = pct, fill = legend_labs)) +
 
 ```
 
+
+Como era de esperarse, la mayor cantidad de establecimientos educativos de gestión estatal corresponden al nivel primario, seguido por el nivel Inicial (jardines de infantes) y por el área de Adultos y Adolescentes.
+
 # Mapa de escuelas en CABA
 
 Voy a graficar con puntos la distribución de las escuelas en CABA.
 
 Levanto el dataset de establecimientos educativos (ahora desde el geojson) para tener las coordenadas.
 
-Además, levanto el geojson de las comunas de CABA.
+Además, levanto el geojson de las comunas de CABA, también extraído del portal BA Data. 
 
 ```{r message=FALSE, warning=FALSE}
 
@@ -243,10 +274,12 @@ escuelas_caba <- st_read("data/establecimientos_educativos_WGS84.geojson",
                         stringsAsFactors = TRUE, #Carga strings como categorías
                         options = "ENCODING=latin1")
 
+
 comunas_caba <- st_read("data/comunas_caba.geojson",
                         stringsAsFactors = TRUE, #Carga strings como categorías
                         options = "ENCODING=latin1")
 
+#Agrego columna con nombre "comuna" para luego poder joinear con la base de establecimientos educativos.
 comunas_caba <- comunas_caba %>% 
   mutate(comuna = COMUNAS)
 
@@ -254,13 +287,16 @@ dim(comunas_caba)
 
 ```
 
-Me quedo sólo con las correspondientes a alguna Dirección (quito gerencias)
+De la nueva base de escuelas, me quedo sólo con las correspondientes a alguna Dirección (quito gerencias y subsecretaría).
 
 ```{r}
 escuelas_caba <- escuelas_caba %>% 
   filter(grepl("Dirección",depfun))
 
 ```
+
+Realizo un primer gráfico para ver la distribución de escuelas en la CABA, discriminando por las Direcciones (dependencia funcional).
+
 
 ```{r}
 ggplot()+
@@ -271,7 +307,12 @@ ggplot()+
   labs(title="Escuelas en CABA por Dependencia Funcional")
 ```
 
+A priori no podemos obtener demasiada información con este mapa, salvo algunas zonas de la Ciudad con pocos establecimientos educativos como la zona correspondiente a la Reserva Ecológica de Costanera Sur, la zona cercana a Ciudad Universitaria y la zona cercana a la Reserva Ecológica de Lugano.
+
+
 # Cantidad de escuelas por Comuna
+
+Voy a analizar ahora la cantidad de escuelas que hay en cada una de las comunas. Para ello agrupo por comunas y agrego columna de cantidad.
 
 ```{r}
 cant_escuelas_comunas <- escuelas_direcciones %>% 
@@ -282,11 +323,14 @@ cant_escuelas_comunas <- escuelas_direcciones %>%
 
 **Al dataset de comunas le uno el de cantidad de escuelas**
 
+
 ```{r}
 comunas_caba <- left_join(comunas_caba,cant_escuelas_comunas, by="comuna")
 ```
 
 ## Gráfico de barras de escuelas por comunas
+
+Hago un primer gráfico de barras con la cantidad de establecimientos educativos por cada comuna.
 
 ```{r}
 ggplot(data = comunas_caba,
@@ -302,7 +346,12 @@ ggplot(data = comunas_caba,
   coord_flip() #Roto el gráfico para que quede horizontal
 ```
 
+Se observa que las comunas con mayor cantidad de establecimientos educativos son las comunas 4 y 1 y las que tienen menor cantidad son las comunas 2 y 6.
+
+
 ## Mapa coroplético con la cantidad de escuelas por comuna
+
+Para ubicar geográficamente la misma información, realizo un mapa coroplético con una escala de colores que va de rojo a verde correspondiendo a las comunas con menor a mayor cantidad de establecimientos educativos.
 
 ```{r}
 ggplot()+
@@ -312,7 +361,11 @@ ggplot()+
        fill="")
 ```
 
+Puede observarse de buena manera como las comunas 1 y 4 son las que mayor cantidad de establecimientos educativos tienen (cercanos a los 250) y luego de la comuna 2 como la comuna con menor cantidad de escuelas también aparecen las comunas 9 y 6 con un color más anaranjado.
+
 # Ubicación de las escuelas de gestión Privada/Estatal
+
+Ahora se realizará un análisis para intentar determinar si hay comunas con mayor presencia de escuelas de gestión privada que otras. Para ello en principio se comparará con la cantidad de escuelas de gestión estatal en el mismo territorio. 
 
 ```{r}
 
@@ -344,7 +397,9 @@ ggmap(mapa_caba)+
   labs(title="Escuelas en CABA según gestión Estatal/Privada")
 ```
 
-Voy a facetar el mapa según escuelas de gestión Estatal o Privada para verlo con más claridad
+En este primer mapa de la ubicación de las escuelas según gestión estatal o privada, puede observarse que hacia el sur de la ciudad predominan las de gestión estatal, mientras que en el centro y norte de la ciudad aparecen la mayor cantidad de escuelas de gestión privada. 
+
+Voy a facetar el mapa según escuelas de gestión Estatal o Privada para verlo con más claridad.
 
 ```{r message=FALSE, warning=FALSE}
 ggmap(mapa_caba)+
@@ -352,12 +407,13 @@ ggmap(mapa_caba)+
   geom_sf(data=escuelas_estatales_privadas, aes(x = st_coordinates(geometry)[,1], y = st_coordinates(geometry)[,2]), inherit.aes=FALSE)+
   facet_wrap(~est_priv)
 
-
 ```
+
+Con este facetado puede observarse con mayor claridad que las escuelas de gestión estatal tienen una distribución mucho más uniforme en casi todo el territorio de la ciudad, mientras que las escuelas de gestión privada se concentran un poco más en algunas zonas particulares.
 
 # Escuelas privadas por comuna
 
-Filtro para quedarme con sólo las escuelas con dependencia funcional "Dirección General de Educación de Gestión Privada"
+Filtro para quedarme sólo con las escuelas con dependencia funcional "Dirección General de Educación de Gestión Privada". Calculo la cantidad por comuna. 
 
 ```{r}
 
@@ -370,6 +426,8 @@ escuelas_privadas_por_comuna <- escuelas %>%
 escuelas_privadas_por_comuna
 
 ```
+
+Realizo un gráfico de barras para visualizar la cantidad de escuelas de gestión privada en cada una de las comunas de CABA. 
 
 ```{r}
 ggplot(data = escuelas_privadas_por_comuna,
@@ -385,20 +443,28 @@ ggplot(data = escuelas_privadas_por_comuna,
   coord_flip() #Roto el gráfico para que quede horizontal
 ```
 
+Puede observarse que las comunas 13 y 1 son las que tienen mayor cantidad de escuelas de gestión privada, mientras que las comunas 8 y 9 son las que menos cantidad tienen.
+
 ## Mapa coroplético de escuelas privadas por comuna
+
+Voy a realizar un mapa coroplético para ubicar geográficamente la misma información.
 
 A comunas_caba le tengo que joinear el escuelas_privadas_por_comuna
 
-```{r}
+```{r message=FALSE, warning=FALSE}
+#Levanto nuevamente para trabajar con datos limpios
 comunas_caba <- st_read("data/comunas_caba.geojson",
-                        stringsAsFactors = TRUE, #Carga strings como categorías
+                        stringsAsFactors = TRUE,
                         options = "ENCODING=latin1")
 
 comunas_caba <- comunas_caba %>% 
   mutate(comuna = COMUNAS)
 
+#Joineo con lo calculado previamente
 escuelas_privadas_por_comuna <- left_join(comunas_caba,escuelas_privadas_por_comuna, by="comuna")
 ```
+
+Realizo mapa coroplético con la cantidad de escuelas de gestión privada por Comuna, con una escala de colores que va de rojo a verde desde las comunas con menor a mayor cantidad.
 
 ```{r}
 ggplot()+
@@ -408,7 +474,11 @@ ggplot()+
        fill="")
 ```
 
+En este mapa coroplético puede observarse de mejor manera la distribución de escuelas de gestión privada, siendo las comunas del norte (13, 14) y comuna 1 las de mayor cantidad y las comunas del Sur (8 y 9) pero también 4 y 10 las de menor cantidad de escuelas de gestión privada.
+
 # Escuelas según cantidad de población
+
+Para complejizar el análisis se cruzará la base de datos de establecimientos educativos, con la base trabajada en el curso de la cantidad de población de AMBA según el censo 2010.
 
 ## Levanto base censo 2010
 
@@ -441,7 +511,7 @@ censo_2010_CABA <- censo_2010 %>%
 
 ```
 
-**Genero una columna Comuna** 
+**Genero una columna Comuna**
 
 En la misma sólo voy a poner el número de la comuna para poder joinear
 
@@ -463,18 +533,19 @@ comunas_caba <- left_join(comunas_caba, cant_escuelas_comunas, by="comuna")
 
 **Calculo escuelas por cantidad de poblacion**
 
-En base a los datos del censo de 2010, por cada 1000 habitantes y cada 1000 viviendas.
+En base a los datos del censo de 2010, por cada 1000 habitantes.
 
 ```{r message=FALSE, warning=FALSE}
 
 escuelas_poblacion <- comunas_caba %>% 
-  mutate(escuelas_por_1000_hab = cantidad/(pob_2010/1000),
-         escuelas_por_1000_viv = cantidad/(viv_2010/1000)) %>% 
+  mutate(escuelas_por_1000_hab = cantidad/(pob_2010/1000)) %>% 
   arrange(-escuelas_por_1000_hab)
 
 ```
 
 # Gráfico de escuelas por cada 1000 habitantes por Comuna
+
+Realizo un gráfico de barras con la relación entre cantidad de población y cantidad de establecimientos educativos (de gestión privada y estatal).
 
 ```{r message=FALSE, warning=FALSE}
 
@@ -487,7 +558,11 @@ ggplot(escuelas_poblacion, aes(x = escuelas_por_1000_hab, y = reorder(nombre,com
   ggtitle("Escuelas por cada 1000 habitantes por Comuna")
 ```
 
+En este gráfico puede observarse que las comunas con mayor cantidad de establecimientos educativos por cantidad de habitantes son las Comunas 1 y 4, y las comunas con menor cantidad de escuelas por habitantes son las comunas 14 y 2. 
+
 ## Cantidad de escuelas privadas por cada 1000 habitantes por Comuna
+
+Realizo la misma relación, pero sólo con las escuelas de gestión privada. 
 
 ```{r message=FALSE, warning=FALSE}
 
@@ -505,9 +580,11 @@ ggplot(escuelas_priv_agrup_comuna_censo, aes(y = reorder(nombre,comuna))) +
   ggtitle("Cantidad de escuelas privadas por habitantes por Comuna")
 ```
 
+Para el caso de las escuelas de gestión privada, podemos observar también que la Comuna 1 aparece como la de mayor cantidad por habitantes, seguida por la Comuna 13. Y nuevamente las comunas 4,8 y 9 como las comunas con menor cantidad de escuelas privadas por habitante.
+
 # Comparación de cantidad de escuelas por cada 1000 habitantes
 
-Voy a generar un facetado para ver en dos mapas coropléticos la relación entre cantidad de escuelas de gestión estatal y de gestión privada por comuna.
+Para finalizar, voy a generar un facetado para ver en dos mapas coropléticos la relación entre cantidad de escuelas de gestión estatal y de gestión privada por comuna.
 
 Para ello tengo que generar un dataset que contenga, por cada comuna, la cantidad de escuelas privadas y la cantidad de escuelas estatales por cada 1000 habitantes.
 
@@ -521,7 +598,8 @@ Tengo los datos:
 
 cant_escuelas_est_priv_comunas <- escuelas_estatales_privadas %>% 
   group_by(comuna,est_priv) %>% 
-  summarise(cantidad = n())
+  summarise(cantidad = n()) %>% 
+  arrange(comuna)
 
 ```
 
@@ -540,18 +618,27 @@ cant_escuelas_est_priv_comunas <- cant_escuelas_est_priv_comunas %>%
   mutate(escuelas_por_1000_hab = cantidad/(pob_2010/1000))
 ```
 
-Levanto y joineo el mapa de comunas_caba para poder graficar el coroplético
+Levanto y joineo el mapa de comunas_caba para poder graficar el mapa coroplético
 
 ```{r message=FALSE, warning=FALSE}
 
 comunas_caba <- st_read("data/comunas_caba.geojson",
                         stringsAsFactors = TRUE, #Carga strings como categorías
                         options = "ENCODING=latin1") %>% 
-  mutate(comuna = COMUNAS)
+  mutate(comuna = COMUNAS) %>% 
+  arrange(comuna)
 
 cant_escuelas_est_priv_comunas <- st_join(comunas_caba, cant_escuelas_est_priv_comunas)
-
 ```
+
+Muestro que por cada Comuna hay una relación de cantidad de escuelas de gestión privada y de gestión estatal por cada 1000 habitantes.
+
+```{r}
+cant_escuelas_est_priv_comunas %>% 
+  select(nombre,est_priv,escuelas_por_1000_hab)
+```
+
+
 
 Grafico mapa coroplético facetado por estatales y privadas
 
@@ -565,3 +652,11 @@ ggplot()+
        fill="")
 
 ```
+
+En estos mapas coropléticos podemos comparar la relación entre escuelas de gestión estatal y privada según cantidad de habitantes en cada una de las comunas de la CABA. Puede observarse como en el caso de las escuelas de gestión estatal, la mayor cantidad en relación a la cantidad de habitantes apare en las comunas de la zona Sur (4,8, 9 y 10) y en menor relación en las comunas de la zona norte. También se observa una relación inversa en lo que respecta a cantidad de escuelas de gestión privada por cada 1000 habitantes para las comunas de la zona Sur (principalmente la 8, 9 y 10).
+
+# Comentarios finales
+
+Por conocer a grandes rasgos la Ciudad Autónoma de Buenos Aires, es esperable que las escuelas de gestión privada se ubiquen en mayor medida en las comunas con población de mayor poder adquisitivo, siendo especialmente las comunas de la zona norte y la comuna 1. A su vez, es notorio cómo la mayor cantidad de escuelas de gestión estatal por cantidad de habitantes, se ubican en la zona sur de la ciudad.
+
+Algunas consideraciones a tener en cuenta es que el análisis realizado es un análisis muy superficial y que no podrían sacarse grandes conclusiones sobre la necesidad de que haya más establecimientos educativos en alguna u otra zona. No se contemplaron los rangos etáreos de las poblaciones de cada comuna, la distintción de escuelas de jornada simple o completa, si las escuelas de gestión privada tienen subvención estatal o los promedios de años de escolarización de las poblaciones de las mismas. A su vez, las escalas de colores podrían en algunos casos introducir algunas interpretaciones erróneas, por ejemplo en el último mapa facetado donde las escalas son absolutas y no relativas a cada uno de los mapas.
